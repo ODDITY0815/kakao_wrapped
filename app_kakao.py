@@ -294,6 +294,85 @@ def show_ai_report_ui(df, year, api_key):
                 except Exception as e:
                     st.error(f"API 호출 중 에러 발생: {e}")
 
+def show_chatbot_ui(df, api_key):
+    """[Tab 4] 대화 검색 챗봇"""
+    st.subheader("💬 대화 내용 검색 챗봇")
+    st.info("💡 업로드한 카카오톡 대화 내용을 기반으로 질문에 답변합니다. (예: '누가 여기 가자고 했어?', '언제 만나기로 했지?')")
+    
+    if not api_key:
+        st.warning("Gemini API Key가 설정되지 않았습니다. Streamlit Secrets에 API Key를 추가해주세요.")
+        return
+    
+    # 세션 스테이트로 대화 히스토리 관리
+    if 'chat_history' not in st.session_state:
+        st.session_state.chat_history = []
+    
+    # 대화 히스토리 표시
+    for chat in st.session_state.chat_history:
+        with st.chat_message(chat["role"]):
+            st.markdown(chat["content"])
+    
+    # 사용자 입력
+    user_question = st.chat_input("대화 내용에 대해 질문해보세요...")
+    
+    if user_question:
+        # 사용자 메시지 표시
+        with st.chat_message("user"):
+            st.markdown(user_question)
+        st.session_state.chat_history.append({"role": "user", "content": user_question})
+        
+        # AI 응답 생성
+        with st.chat_message("assistant"):
+            with st.spinner("대화 내용을 검색하는 중..."):
+                try:
+                    genai.configure(api_key=api_key)
+                    model = genai.GenerativeModel('gemini-2.5-flash')
+                    
+                    # 관련 대화 검색 (전체 데이터 사용, 최대 500개)
+                    sample_size = min(500, len(df))
+                    
+                    # 날짜, 사용자, 메시지 정보를 포함한 컨텍스트 생성
+                    context_data = []
+                    for _, row in df.sample(sample_size).iterrows():
+                        date_str = row['Date'].strftime('%Y-%m-%d %H:%M') if pd.notna(row['Date']) else '날짜 없음'
+                        user = row['User'] if pd.notna(row['User']) else '알 수 없음'
+                        message = row['Message'] if pd.notna(row['Message']) else ''
+                        context_data.append(f"[{date_str}] {user}: {message}")
+                    
+                    context = "\n".join(context_data)
+                    
+                    prompt = f"""
+                    당신은 카카오톡 대화 내용을 분석하는 전문 어시스턴트입니다.
+                    아래는 실제 대화 내용입니다:
+                    
+                    {context}
+                    
+                    사용자의 질문: {user_question}
+                    
+                    위 대화 내용을 바탕으로 사용자의 질문에 정확하고 친절하게 답변해주세요.
+                    답변할 때는:
+                    1. 관련된 대화 내용을 구체적으로 인용해주세요
+                    2. 누가, 언제, 무엇을 말했는지 명확하게 알려주세요
+                    3. 관련 내용이 여러 개라면 모두 알려주세요
+                    4. 대화 내용에서 찾을 수 없다면 솔직하게 "해당 내용을 찾을 수 없습니다"라고 답변해주세요
+                    """
+                    
+                    response = model.generate_content(prompt)
+                    answer = response.text
+                    
+                    st.markdown(answer)
+                    st.session_state.chat_history.append({"role": "assistant", "content": answer})
+                    
+                except Exception as e:
+                    error_msg = f"오류가 발생했습니다: {str(e)}"
+                    st.error(error_msg)
+                    st.session_state.chat_history.append({"role": "assistant", "content": error_msg})
+    
+    # 대화 초기화 버튼
+    if st.button("🔄 대화 내용 초기화"):
+        st.session_state.chat_history = []
+        st.rerun()
+
 # -----------------------------------------------------------------------------
 # 4. 메인 앱 로직
 # -----------------------------------------------------------------------------
@@ -318,6 +397,8 @@ st.markdown("""
 5. 저장된 텍스트 파일(.csv)를 아래에 업로드하세요.
 6. 새로운 채팅방을 분석할 때에는 이전에 업로드한 채팅방 파일을 삭제해야합니다.
 
+## 📋 업로드된 파일은 제작자 혹은 외부에 공유되지 않습니다.
+
 ---
 """)
 
@@ -331,20 +412,21 @@ if uploaded_files:
             selected_year = st.selectbox("📅 분석할 연도 선택", all_years, index=len(all_years)-1)
             year_df = df[df['Year'] == selected_year]
             
-            # 탭 구성 (총 6개)
-            tabs = st.tabs(["🎁 Wrapped", "🎭 성격 분석", "🤖 심층 리포트", "📊 발화량", "☁️ 키워드", "📋 데이터"])
+            # 탭 구성 (총 7개 - 챗봇 탭 추가)
+            tabs = st.tabs(["🎁 Wrapped", "🎭 성격 분석", "🤖 심층 리포트", "💬 챗봇", "📊 발화량", "☁️ 키워드", "📋 데이터"])
             
             with tabs[0]: show_wrapped_ui(year_df, selected_year, api_key)
             with tabs[1]: show_personality_analysis(year_df, api_key)
             with tabs[2]: show_ai_report_ui(year_df, selected_year, api_key)
+            with tabs[3]: show_chatbot_ui(year_df, api_key)  # 새로운 챗봇 탭
             
-            with tabs[3]: # 발화량
+            with tabs[4]: # 발화량
                 st.subheader("사용자별 통계")
                 uc = year_df['User'].value_counts().reset_index()
                 uc.columns = ['User', 'Count']
                 st.plotly_chart(px.bar(uc, x='User', y='Count', color='User'), use_container_width=True)
             
-            with tabs[4]: # 키워드
+            with tabs[5]: # 키워드
                 st.subheader("주요 키워드")
                 if st.button("키워드 분석 시작"):
                     nouns = extract_nouns(year_df['Message'].dropna().tolist())
@@ -361,7 +443,7 @@ if uploaded_files:
                     # 데이터프레임으로도 표시
                     st.dataframe(keyword_df, use_container_width=True)
             
-            with tabs[5]: st.dataframe(year_df) # 원본 데이터
+            with tabs[6]: st.dataframe(year_df) # 원본 데이터
         else: st.warning("연도 정보 없음")
     else: st.warning("데이터 로드 실패")
 else: 
