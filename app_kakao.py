@@ -152,7 +152,8 @@ def show_wrapped_ui(df, year, api_key=None):
             try:
                 genai.configure(api_key=api_key)
                 model = genai.GenerativeModel('gemini-2.5-flash')
-                sample = df['Message'].dropna().sample(min(150, len(df))).tolist()
+                sample_size = min(150, len(df))
+                sample = df['Message'].dropna().sample(sample_size).tolist() if sample_size > 0 else []
                 prompt = f"다음 카톡 대화({year}년)에서 핵심 주제 5가지를 뽑아 '주제1, 주제2' 형태로 콤마로만 구분해줘: {sample}"
                 response = model.generate_content(prompt)
                 topics = response.text.replace("\n", "").split(",")
@@ -208,8 +209,14 @@ def show_personality_analysis(df, api_key):
             col = cols[idx % 2]
             with col:
                 with st.spinner(f"'{user}'님의 영혼을 들여다보는 중..."):
-                    user_msgs = df[df['User'] == user]['Message'].dropna().sample(min(120, len(df))).tolist()
-                    if not user_msgs: continue
+                    user_df = df[df['User'] == user]['Message'].dropna()
+                    if len(user_df) == 0:
+                        st.warning(f"{user}님의 메시지가 없습니다.")
+                        continue
+                    
+                    # 샘플 크기를 실제 데이터 크기와 비교
+                    sample_size = min(120, len(user_df))
+                    user_msgs = user_df.sample(sample_size).tolist()
 
                     prompt = f"""
                     당신은 '예리하고 유머러스한 심리 분석가'입니다. 다음은 '{user}' 님의 대화입니다: {user_msgs}
@@ -242,7 +249,7 @@ def show_personality_analysis(df, api_key):
                         </div>
                         """, unsafe_allow_html=True)
                     except Exception as e:
-                        st.error(f"{user}: 분석 실패")
+                        st.error(f"{user}: 분석 실패 - {str(e)}")
             progress_bar.progress((idx + 1) / len(selected_users))
         progress_bar.empty()
 
@@ -261,7 +268,8 @@ def show_ai_report_ui(df, year, api_key):
                     model = genai.GenerativeModel('gemini-2.5-flash')
                     
                     # 샘플링 (토큰 제한 고려)
-                    sample_messages = df['Message'].dropna().sample(min(200, len(df))).tolist()
+                    sample_size = min(200, len(df))
+                    sample_messages = df['Message'].dropna().sample(sample_size).tolist() if sample_size > 0 else []
                     
                     prompt = f"""
                     당신은 전문 데이터 분석가입니다. 다음은 {year}년도의 카카오톡 대화방 샘플 데이터입니다.
