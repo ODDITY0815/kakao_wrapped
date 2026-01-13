@@ -6,43 +6,28 @@ from collections import Counter
 from konlpy.tag import Okt
 import google.generativeai as genai
 import plotly.express as px
-from wordcloud import WordCloud
 import matplotlib.pyplot as plt
 import json
 from io import BytesIO
 
 # -----------------------------------------------------------------------------
-# 1. 페이지 설정 및 폰트 설정 (배포 환경 대응)
+# 1. 페이지 설정 및 API 설정
 # -----------------------------------------------------------------------------
 st.set_page_config(
-    page_title="카카오톡 대화 분석기 (Ultimate)",
+    page_title="카카오톡 대화 분석기 (Ultimate Edition)",
     page_icon="🎁",
     layout="wide"
 )
 
-# 폰트 설정 우회 로직
-def get_font_path():
-    paths = [
-        '/usr/share/fonts/truetype/nanum/NanumGothic.ttf', # Linux (Streamlit Cloud)
-        '/System/Library/Fonts/AppleGothic.ttf',          # Mac
-        'C:/Windows/Fonts/malgun.ttf'                     # Windows
-    ]
-    for p in paths:
-        if os.path.exists(p):
-            return p
-    return None # 폰트가 없을 경우 None 반환 (WordCloud 기본폰트 사용)
-
-FONT_PATH = get_font_path()
-
-# Secrets에서 API 키 가져오기
+# Secrets에서 API 키 로드 (배포 환경)
 try:
     API_KEY = st.secrets["GEMINI_API_KEY"]
-except:
+    genai.configure(api_key=API_KEY)
+except Exception:
     API_KEY = None
-    st.sidebar.warning("⚠️ Streamlit Secrets에 'GEMINI_API_KEY'가 설정되지 않았습니다.")
 
 # -----------------------------------------------------------------------------
-# 2. 데이터 로드 및 전처리
+# 2. 데이터 로드 및 전처리 함수
 # -----------------------------------------------------------------------------
 @st.cache_resource
 def get_tokenizer():
@@ -53,23 +38,30 @@ def load_data(uploaded_files):
     all_data = []
     for uploaded_file in uploaded_files:
         try:
-            # 헤더 탐색 및 로드 (기존 로직 유지)
             content = uploaded_file.read()
+            # 인코딩 자동 감지
+            detected_df = None
             for enc in ['utf-8', 'cp949', 'utf-16']:
                 try:
-                    decoded = content.decode(enc)
-                    df_temp = pd.read_csv(BytesIO(content), encoding=enc, header=None)
+                    uploaded_file.seek(0)
+                    temp_df = pd.read_csv(uploaded_file, header=None, encoding=enc)
+                    used_encoding = enc
+                    detected_df = temp_df
                     break
                 except: continue
             
+            if detected_df is None: continue
+
+            # 헤더 위치 찾기
             header_row_idx = 0
-            for idx, row in df_temp.iterrows():
-                if 'Date' in str(row.values) and 'User' in str(row.values):
+            for idx, row in detected_df.iterrows():
+                row_values = [str(val).strip() for val in row.values]
+                if 'Date' in row_values and 'User' in row_values:
                     header_row_idx = idx
                     break
             
             uploaded_file.seek(0)
-            df = pd.read_csv(uploaded_file, header=header_row_idx, encoding=enc)
+            df = pd.read_csv(uploaded_file, header=header_row_idx, encoding=used_encoding)
             df.columns = [str(c).strip() for c in df.columns]
             
             if 'Date' in df.columns:
@@ -78,22 +70,24 @@ def load_data(uploaded_files):
                 df['Year'] = df['Date'].dt.year
                 all_data.append(df)
         except Exception as e:
-            st.error(f"파일 로드 오류: {e}")
+            st.error(f"파일 로드 중 오류: {e}")
             
-    return pd.concat(all_data, ignore_index=True) if all_data else pd.DataFrame()
+    if all_data: return pd.concat(all_data, ignore_index=True)
+    return pd.DataFrame()
 
 @st.cache_data
 def extract_nouns(text_data, top_n=50):
     okt = get_tokenizer()
     nouns = []
-    sample_text = text_data[:10000] if len(text_data) > 10000 else text_data
-    for text in sample_text:
+    # 에러 방지를 위해 실제 데이터 길이 확인 후 샘플링
+    sample_size = min(len(text_data), 10000)
+    for text in text_data[:sample_size]:
         if isinstance(text, str):
             nouns.extend([n for n in okt.nouns(text) if len(n) > 1])
     return Counter(nouns).most_common(top_n)
 
 # -----------------------------------------------------------------------------
-# 3. UI 컴포넌트 (PNG 다운로드 추가)
+# 3. UI 컴포넌트 함수들 (기존 로직 유지)
 # -----------------------------------------------------------------------------
 def get_time_of_day_label(hour):
     if 5 <= hour < 12: return "🌞 아침형 인간"
@@ -102,82 +96,144 @@ def get_time_of_day_label(hour):
     else: return "🦉 올빼미족"
 
 def show_wrapped_ui(df, year):
-    # CSS 유지 (생략, 원본 코드와 동일)
-    st.markdown(f"## 🎉 {year}년 우리들의 기록 (Wrapped)")
-    
+    st.markdown("""
+    <style>
+    .wrapped-card { padding: 20px; border-radius: 15px; text-align: center; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); color: white; height: 100%; }
+    .wrapped-title { font-size: 1.0rem; opacity: 0.9; margin-bottom: 5px; }
+    .wrapped-value { font-size: 2.0rem; font-weight: bold; margin-bottom: 5px; }
+    .wrapped-desc { font-size: 0.8rem; opacity: 0.9; }
+    .card-dark { background: linear-gradient(135deg, #434343 0%, #000000 100%); }
+    .card-blue { background: linear-gradient(120deg, #2980b9 0%, #6dd5fa 100%); }
+    .card-pink { background: linear-gradient(120deg, #f093fb 0%, #f5576c 100%); }
+    .card-green { background: linear-gradient(120deg, #84fab0 0%, #8fd3f4 100%); color: #333 !important; }
+    .card-gold { background: linear-gradient(120deg, #f6d365 0%, #fda085 100%); color: #333 !important; }
+    .ai-tag { display: inline-block; background-color: #f0f2f6; color: #31333F; padding: 5px 15px; border-radius: 20px; margin: 5px; font-weight: bold; border: 1px solid #d0d0d0; }
+    </style>
+    """, unsafe_allow_html=True)
+
     total_msgs = len(df)
     daily_counts = df['Date'].dt.date.value_counts()
-    best_day_str = daily_counts.idxmax().strftime("%m월 %d일") if not daily_counts.empty else "-"
+    best_day_str, best_day_count = ("-", 0)
+    if not daily_counts.empty:
+        best_day = daily_counts.idxmax()
+        best_day_count = daily_counts.max()
+        best_day_str = best_day.strftime("%m월 %d일")
+
+    hourly_counts = df['Date'].dt.hour.value_counts()
+    best_hour = hourly_counts.idxmax() if not hourly_counts.empty else 0
+    time_label = get_time_of_day_label(best_hour)
+
+    user_counts = df['User'].value_counts()
+    mvp_user = user_counts.idxmax() if not user_counts.empty else "-"
+    mvp_ratio = int((user_counts.max() / total_msgs) * 100) if total_msgs > 0 else 0
+
+    all_msgs = df['Message'].dropna().tolist()
+    top_nouns = extract_nouns(all_msgs, top_n=1)
+    top_word, top_word_count = top_nouns[0] if top_nouns else ("데이터 부족", 0)
+
+    st.markdown(f"## 🎉 {year}년 우리들의 기록 (Wrapped)")
+    c1, c2, c3 = st.columns(3)
+    with c1: st.markdown(f"""<div class="wrapped-card card-dark"><div class="wrapped-title">총 대화</div><div class="wrapped-value">{total_msgs:,}</div><div class="wrapped-desc">우리의 히스토리</div></div>""", unsafe_allow_html=True)
+    with c2: st.markdown(f"""<div class="wrapped-card card-green"><div class="wrapped-title" style="color:#333">올해의 MVP</div><div class="wrapped-value" style="color:#333">{mvp_user}</div><div class="wrapped-desc" style="color:#333">지분율 {mvp_ratio}%</div></div>""", unsafe_allow_html=True)
+    with c3: st.markdown(f"""<div class="wrapped-card card-gold"><div class="wrapped-title" style="color:#333">올해의 단어</div><div class="wrapped-value" style="color:#333">"{top_word}"</div><div class="wrapped-desc" style="color:#333">{top_word_count}회 언급</div></div>""", unsafe_allow_html=True)
     
-    # ... (기존 통계 계산 로직 동일) ...
-    
-    # AI 분석 (Secrets의 API_KEY 사용)
-    if API_KEY and st.button("✨ AI 주제 분석"):
-        with st.spinner("분석 중..."):
-            genai.configure(api_key=API_KEY)
-            model = genai.GenerativeModel('gemini-2.0-flash') # 최신 모델명 확인 필요
-            sample = df['Message'].dropna().sample(min(100, len(df))).tolist()
-            response = model.generate_content(f"다음 카톡 주제 5가지를 콤마로 구분: {sample}")
-            st.write(response.text)
+    c4, c5 = st.columns(2)
+    with c4: st.markdown(f"""<div class="wrapped-card card-blue"><div class="wrapped-title">황금 시간대</div><div class="wrapped-value">{best_hour}시</div><div class="wrapped-desc">{time_label}</div></div>""", unsafe_allow_html=True)
+    with c5: st.markdown(f"""<div class="wrapped-card card-pink"><div class="wrapped-title">최고의 날</div><div class="wrapped-value">{best_day_str}</div><div class="wrapped-desc">하루 {best_day_count}톡</div></div>""", unsafe_allow_html=True)
+
+    if API_KEY:
+        st.markdown("### 🤖 AI 키워드 요약")
+        if st.button("✨ 주제 분석 보기"):
+            with st.spinner("분석 중..."):
+                try:
+                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    sample = df['Message'].dropna().sample(min(150, len(df))).tolist()
+                    prompt = f"다음 대화에서 핵심 주제 5가지를 뽑아 '주제1, 주제2' 형태로만 답변해줘: {sample}"
+                    response = model.generate_content(prompt)
+                    topics = response.text.split(",")
+                    tags_html = "".join([f"<span class='ai-tag'># {t.strip()}</span>" for t in topics if t.strip()])
+                    st.markdown(f"<div style='text-align: center; margin: 10px 0;'>{tags_html}</div>", unsafe_allow_html=True)
+                except Exception as e: st.error(f"분석 실패: {e}")
+
+def show_personality_analysis(df):
+    st.subheader("🎭 AI가 본 '부캐' 프로필")
+    if not API_KEY:
+        st.warning("Gemini API Key가 설정되지 않았습니다.")
+        return
+
+    selected_users = st.multiselect("분석할 멤버 선택", df['User'].unique(), default=df['User'].value_counts().head(3).index.tolist())
+
+    if st.button("🕵️ 프로필 분석 시작"):
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        cols = st.columns(2)
+        for idx, user in enumerate(selected_users):
+            with cols[idx % 2]:
+                with st.spinner(f"'{user}' 분석 중..."):
+                    user_series = df[df['User'] == user]['Message'].dropna()
+                    user_msgs = user_series.sample(min(100, len(user_series))).tolist()
+                    prompt = f"다음 대화를 바탕으로 {user}의 재미있는 RPG 프로필을 JSON(title, mbti, animal, keywords, skill, desc)으로 작성: {user_msgs}"
+                    try:
+                        response = model.generate_content(prompt)
+                        data = json.loads(response.text.replace("```json", "").replace("```", ""))
+                        st.markdown(f"""
+                        <div style="background:#fff; border:1px solid #ddd; padding:20px; border-radius:15px; margin-bottom:10px;">
+                            <h3>{data['animal']} {user}</h3>
+                            <p><b>칭호:</b> {data['title']} | <b>MBTI:</b> {data['mbti']}</p>
+                            <p><b>보유스킬:</b> {data['skill']}</p>
+                            <p>{data['desc']}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    except: st.error(f"{user} 분석 실패")
 
 def show_ai_report_ui(df, year):
-    st.subheader(f"🤖 Gemini 심층 리포트")
+    st.subheader(f"🤖 {year}년 심층 리포트")
     if not API_KEY:
-        st.warning("API Key가 설정되지 않았습니다.")
+        st.warning("Gemini API Key가 필요합니다.")
         return
-    
     if st.button("📑 리포트 생성"):
-        with st.spinner("작성 중..."):
-            genai.configure(api_key=API_KEY)
-            model = genai.GenerativeModel('gemini-2.0-flash')
-            sample = df['Message'].dropna().sample(min(150, len(df))).tolist()
-            prompt = f"다음 대화를 분석해 분위기, 주제, 총평을 마크다운으로 작성: {sample}"
+        with st.spinner("AI 분석 중..."):
+            model = genai.GenerativeModel('gemini-1.5-flash')
+            sample = df['Message'].dropna().sample(min(200, len(df))).tolist()
+            prompt = f"다음 카톡 대화 샘플을 분석해서 분위기, 주요 관심사, 한 줄 총평을 마크다운으로 작성해줘: {sample}"
             response = model.generate_content(prompt)
             st.markdown(response.text)
-            st.download_button("📥 리포트(.txt) 다운로드", response.text, file_name=f"report_{year}.txt")
 
 # -----------------------------------------------------------------------------
-# 4. 메인 로직
+# 4. 메인 앱 로직
 # -----------------------------------------------------------------------------
-uploaded_files = st.sidebar.file_uploader("카카오톡 CSV 업로드", type=['csv'], accept_multiple_files=True)
+st.title("💬 카카오톡 연도별 대화 분석기")
+
+# [수정사항 4] 파일 업로드 가이드 추가
+with st.expander("📂 시작하기 전, 데이터 추출 방법 확인", expanded=True):
+    st.markdown("""
+    1. 분석하고 싶은 **카카오톡 채팅방**에 접속합니다.
+    2. 오른쪽 상단 **메뉴(≡)** 아이콘을 클릭합니다.
+    3. 하단 **설정(톱니바퀴)** 아이콘을 클릭합니다.
+    4. **대화 내용 관리** > **대화 내용 저장**을 클릭합니다.
+    5. 저장된 **텍스트 파일(.txt) 또는 CSV**를 아래에 업로드하세요.
+    """)
+
+uploaded_files = st.sidebar.file_uploader("카카오톡 파일 업로드", type=['csv', 'txt'], accept_multiple_files=True)
 
 if uploaded_files:
     df = load_data(uploaded_files)
     if not df.empty:
         all_years = sorted(df['Year'].dropna().astype(int).unique())
-        selected_year = st.sidebar.selectbox("연도 선택", all_years, index=len(all_years)-1)
+        selected_year = st.sidebar.selectbox("분석할 연도 선택", all_years, index=len(all_years)-1)
         year_df = df[df['Year'] == selected_year]
         
-        tabs = st.tabs(["🎁 Wrapped", "🎭 성격 분석", "🤖 심층 리포트", "📊 발화량", "☁️ 키워드"])
+        tabs = st.tabs(["🎁 Wrapped", "🎭 성격 분석", "🤖 심층 리포트", "📊 발화량", "📋 데이터"])
         
         with tabs[0]: show_wrapped_ui(year_df, selected_year)
-        
+        with tabs[1]: show_personality_analysis(year_df)
         with tabs[2]: show_ai_report_ui(year_df, selected_year)
-        
-        with tabs[4]: # 키워드 & PNG 다운로드
-            st.subheader("주요 키워드 워드클라우드")
-            if st.button("분석 시작"):
-                nouns = extract_nouns(year_df['Message'].dropna().tolist())
-                if nouns:
-                    wc = WordCloud(font_path=FONT_PATH, background_color="white", width=800, height=400).generate_from_frequencies(dict(nouns))
-                    
-                    # 이미지 표시
-                    fig, ax = plt.subplots()
-                    ax.imshow(wc, interpolation='bilinear')
-                    ax.axis("off")
-                    st.pyplot(fig)
-                    
-                    # PNG 다운로드 로직
-                    buf = BytesIO()
-                    plt.savefig(buf, format="png")
-                    st.download_button(
-                        label="📥 워드클라우드 PNG 다운로드",
-                        data=buf.getvalue(),
-                        file_name=f"wordcloud_{selected_year}.png",
-                        mime="image/png"
-                    )
-                else:
-                    st.warning("추출된 명사가 없습니다.")
-
+        with tabs[3]:
+            st.subheader("사용자별 통계")
+            uc = year_df['User'].value_counts().reset_index()
+            uc.columns = ['User', 'Count']
+            st.plotly_chart(px.bar(uc, x='User', y='Count', color='User', text_auto=True), use_container_width=True)
+        with tabs[4]: st.dataframe(year_df)
+    else:
+        st.warning("데이터를 읽을 수 없습니다. 파일 형식을 확인해주세요.")
 else:
-    st.info("👈 사이드바에서 카카오톡 CSV 파일을 업로드해주세요.")
+    st.info("👈 사이드바에서 파일을 업로드하면 분석이 시작됩니다.")
