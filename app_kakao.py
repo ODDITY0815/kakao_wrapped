@@ -220,7 +220,7 @@ def show_personality_analysis(df, api_key):
 
                     prompt = f"""
                     당신은 '예리하고 유머러스한 심리 분석가'입니다. 다음은 '{user}' 님의 대화입니다: {user_msgs}
-                    친구들이 보고 '빵 터질 수 있는' 재미있는 프로필을 만들어주세요. JSON 포맷만 출력하세요:
+                    친구들이 보고 '빵 터질 수 있는' 재미있는 프로필을 만들어주세요. 전화번호, 계좌번호, 아이디 및 비밀번호 등 민감한 개인정보는 제외해주세요. JSON 포맷만 출력하세요:
                     {{
                         "title": "웃긴 RPG 칭호 (예: 팩트살인마)",
                         "mbti": "예상 MBTI와 짧은 이유",
@@ -272,9 +272,10 @@ def show_ai_report_ui(df, year, api_key):
                     sample_messages = df['Message'].dropna().sample(sample_size).tolist() if sample_size > 0 else []
                     
                     prompt = f"""
-                    당신은 전문 데이터 분석가입니다. 다음은 {year}년도의 카카오톡 대화방 샘플 데이터입니다.
+                    당신은 전문 데이터 분석가입니다. 다음은 {year}년도의 카카오톡 대화방 샘플 데이터입니다. 
                     
                     대화 샘플: {sample_messages}
+                    전화번호, 계좌번호, 아이디 및 비밀번호 등 민감한 개인정보는 제외해주세요.
                     
                     위 내용을 바탕으로 다음 3가지를 분석해서 마크다운 형식으로 깔끔하게 보고서를 작성해주세요:
                     
@@ -355,6 +356,7 @@ def show_chatbot_ui(df, api_key):
                     2. 누가, 언제, 무엇을 말했는지 명확하게 알려주세요
                     3. 관련 내용이 여러 개라면 모두 알려주세요
                     4. 대화 내용에서 찾을 수 없다면 솔직하게 "해당 내용을 찾을 수 없습니다"라고 답변해주세요
+                    5. 전화번호, 계좌번호, 아이디 및 비밀번호 등 민감한 개인정보는 제외해주세요.
                     """
                     
                     response = model.generate_content(prompt)
