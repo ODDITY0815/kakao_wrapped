@@ -14,7 +14,7 @@ from io import BytesIO
 # 1. 페이지 설정 및 API 설정
 # -----------------------------------------------------------------------------
 st.set_page_config(
-    page_title="카카오톡 대화 분석기 (Ultimate Edition)",
+    page_title="카카오톡 대화 분석기(PC)",
     page_icon="🎁",
     layout="wide"
 )
@@ -146,7 +146,7 @@ def show_wrapped_ui(df, year):
         if st.button("✨ 주제 분석 보기"):
             with st.spinner("분석 중..."):
                 try:
-                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    model = genai.GenerativeModel('gemini-2.5-flash')
                     sample = df['Message'].dropna().sample(min(150, len(df))).tolist()
                     prompt = f"다음 대화에서 핵심 주제 5가지를 뽑아 '주제1, 주제2' 형태로만 답변해줘: {sample}"
                     response = model.generate_content(prompt)
