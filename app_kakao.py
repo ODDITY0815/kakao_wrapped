@@ -164,7 +164,7 @@ def show_personality_analysis(df):
     selected_users = st.multiselect("분석할 멤버 선택", df['User'].unique(), default=df['User'].value_counts().head(3).index.tolist())
 
     if st.button("🕵️ 프로필 분석 시작"):
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = genai.GenerativeModel('gemini-2.5-flash')
         cols = st.columns(2)
         for idx, user in enumerate(selected_users):
             with cols[idx % 2]:
@@ -192,7 +192,7 @@ def show_ai_report_ui(df, year):
         return
     if st.button("📑 리포트 생성"):
         with st.spinner("AI 분석 중..."):
-            model = genai.GenerativeModel('gemini-1.5-flash')
+            model = genai.GenerativeModel('gemini-2.5-flash')
             sample = df['Message'].dropna().sample(min(200, len(df))).tolist()
             prompt = f"다음 카톡 대화 샘플을 분석해서 분위기, 주요 관심사, 한 줄 총평을 마크다운으로 작성해줘: {sample}"
             response = model.generate_content(prompt)
